@@ -12,12 +12,12 @@ module Sidekiq
 
       include Sidekiq::Util
       include Sidekiq::DynamicQueues::Attributes
-      
+
       def initialize(options)
         super
         @dynamic_queues = self.class.translate_from_cli(*options[:queues])
       end
-  
+
       # overriding Sidekiq::BasicFetch#queues_cmd
       def queues_cmd
         if @dynamic_queues.grep(/(^!)|(^@)|(\*)/).size == 0
@@ -26,17 +26,17 @@ module Sidekiq
           queues = expand_queues(@dynamic_queues)
           queues = @strictly_ordered_queues ? queues : queues.shuffle
           queues << "queue:default" if queues.size == 0
-          queues << Sidekiq::Fetcher::TIMEOUT
+          queues << TIMEOUT
         end
       end
-      
+
       def self.translate_from_cli(*queues)
         queues.collect do |queue|
           queue.gsub('.star.', '*').gsub('.at.', '@').gsub('.not.', '!')
         end
       end
-      
+
     end
-    
+
   end
 end
