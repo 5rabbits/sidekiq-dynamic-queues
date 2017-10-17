@@ -15,6 +15,7 @@
 </p>
 
 <form action="<%= root_path %>dynamicqueue" method="POST">
+  <%= csrf_tag %>
 
   <table class="queues table table-hover table-bordered table-striped table-white">
     <thead>
@@ -50,11 +51,11 @@
   {
     $("input[type=submit]").css({border:"3px orange solid"});
   }
-  
+
   jQuery(function($) {
 
     $("input").live("keypress", markDirty);
-    
+
     $("a.add").live("click", function(e) {
       e.preventDefault();
       var $table = $("table.queues");
@@ -72,6 +73,6 @@
       markDirty();
     });
 
- 
+
   });
 </script>
