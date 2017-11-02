@@ -24,8 +24,9 @@ module Sidekiq
           super
         else
           queues = expand_queues(@dynamic_queues)
-          queues = @strictly_ordered_queues ? queues : queues.shuffle
-          queues << "queue:default" if queues.size == 0
+          queues = queues.shuffle if !@strictly_ordered_queues
+          queues << 'default' if queues.empty?
+          queues = queues.uniq.map { |q| "queue:#{q}" }
           queues << TIMEOUT
         end
       end

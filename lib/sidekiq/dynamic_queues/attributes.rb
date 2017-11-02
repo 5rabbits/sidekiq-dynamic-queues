@@ -73,46 +73,42 @@ module Sidekiq
       # list for a key with
       # Sidekiq::DynamicQueues::Attributes.set_dynamic_queue(key, ["q1", "q2"]
       #
-      def expand_queues(queues)
-        queue_names = queues.dup
+      def expand_queues(queues, real_queues = nil)
+        real_queues ||= Sidekiq::Queue.all.map(&:name)
+        expansions = queues.map(&:to_s).uniq.map do |q|
+          [q, expand_queue(q, real_queues).uniq]
+        end.to_h
 
-        real_queues = Sidekiq::Queue.all.map(&:name)
-        matched_queues = []
-
-        while q = queue_names.shift
-          q = q.to_s
-
-          if q =~ /^(!)?@(.*)/
-            key = $2.strip
-            key = hostname if key.size == 0
-
-            add_queues = get_dynamic_queue(key)
-            add_queues.map! { |q| q.gsub!(/^!/, '') || q.gsub!(/^/, '!') } if $1
-
-            queue_names.concat(add_queues)
-            next
-          end
-
-          if q =~ /^!/
-            negated = true
-            q = q[1..-1]
-          end
-
-          patstr = q.gsub(/\*/, ".*")
-          pattern = /^#{patstr}$/
-          if negated
-            matched_queues -= matched_queues.grep(pattern)
-          else
-            matches = real_queues.grep(/^#{pattern}$/)
-            matches = [q] if matches.size == 0 && q == patstr
-            matched_queues.concat(matches)
-          end
+        # negated queues only remove the previously matched results
+        negations = []
+        expansions.reverse_each do |q, matches|
+          negations.concat matches if q =~ /^!/
+          expansions[q] -= negations
         end
+        expansions.reject! { |_q, matches| matches.empty? }
 
-        return matched_queues.collect { |q| "queue:#{q}" }.uniq.sort
+        # preserve weights using the least common multiple to expand all dynamic queues to the same size
+        lcm = expansions.values.map(&:size).reduce(1, :lcm)
+        expansions.flat_map do |q, matches|
+          matches * (queues.count(q) * lcm / matches.size)
+        end
       end
 
-    end
+      def expand_queue(q, real_queues)
+        q = q[1..-1] if q =~ /^!/
 
+        if q =~ /^@(.*)/
+          key = q[1..-1].strip
+          key = hostname if key.empty?
+
+          expand_queues(get_dynamic_queue(key), real_queues)
+        elsif q =~ /\*/
+          patstr = q.gsub(/\*/, '.*')
+          real_queues.grep(/^#{patstr}$/)
+        else
+          [q]
+        end
+      end
+    end
   end
 end
