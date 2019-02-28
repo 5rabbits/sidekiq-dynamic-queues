@@ -23,11 +23,10 @@ module Sidekiq
           dqueues = Attr.get_dynamic_queues
           dqueues.each do |k, v|
             expanded = Attr.expand_queues(["@#{k}"])
-            expanded = expanded.collect {|q| q.split(":").last }
             view_data = {
                 'name' => k,
                 'value' => Array(v).join(", "),
-                'expanded' => expanded.join(", ")
+                'expanded' => expanded.keys.join(", ")
             }
             @queues << view_data
           end

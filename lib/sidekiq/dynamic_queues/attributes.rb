@@ -73,46 +73,50 @@ module Sidekiq
       # list for a key with
       # Sidekiq::DynamicQueues::Attributes.set_dynamic_queue(key, ["q1", "q2"]
       #
-      def expand_queues(queues)
-        queue_names = queues.dup
+      def expand_queues(queues, real_queues = nil)
+        real_queues ||= Sidekiq::Queue.all.map(&:name)
+        expansions = queues.map(&:to_s).uniq.map do |q|
+          [q, expand_queue(q, real_queues).uniq]
+        end.to_h
 
-        real_queues = Sidekiq::Queue.all.map(&:name)
-        matched_queues = []
+        # negated queues only remove the previously matched results
+        negations = []
+        expansions.reverse_each do |q, matches|
+          negations.concat matches if q =~ /^!/
+          expansions[q] -= negations
+        end
+        expansions.reject! { |_q, matches| matches.empty? }
 
-        while q = queue_names.shift
-          q = q.to_s
-
-          if q =~ /^(!)?@(.*)/
-            key = $2.strip
-            key = hostname if key.size == 0
-
-            add_queues = get_dynamic_queue(key)
-            add_queues.map! { |q| q.gsub!(/^!/, '') || q.gsub!(/^/, '!') } if $1
-
-            queue_names.concat(add_queues)
-            next
-          end
-
-          if q =~ /^!/
-            negated = true
-            q = q[1..-1]
-          end
-
-          patstr = q.gsub(/\*/, ".*")
-          pattern = /^#{patstr}$/
-          if negated
-            matched_queues -= matched_queues.grep(pattern)
-          else
-            matches = real_queues.grep(/^#{pattern}$/)
-            matches = [q] if matches.size == 0 && q == patstr
-            matched_queues.concat(matches)
+        # preserve weights using the least common multiple to expand all dynamic queues to the same size
+        lcm = expansions.values.map(&:size).reduce(1, :lcm)
+        weighted_queues = expansions.map do |q, matches|
+          weight = (q[/\.(\d+)$/, 1] || '1').to_i * queues.count(q) * lcm / matches.size
+          matches.zip([weight] * matches.size).to_h
+        end
+        weighted_queues.each_with_object({}) do |hash, result|
+          hash.each do |queue, weight|
+            result[queue] ||= 0
+            result[queue] += weight
           end
         end
-
-        return matched_queues.collect { |q| "queue:#{q}" }.uniq.sort
       end
 
-    end
+      def expand_queue(q, real_queues)
+        q = q[1..-1] if q =~ /^!/
 
+        if q =~ /^@(.*)/
+          key = q[1..-1].strip
+          key = hostname if key.empty?
+
+          # TODO: preserve weight for dynamic queues
+          expand_queues(get_dynamic_queue(key), real_queues).keys
+        elsif q =~ /\*/
+          patstr = q.gsub(/\*/, '.*').sub(/\.\d+$/, '')
+          real_queues.grep(/^#{patstr}$/)
+        else
+          [q.sub(/\.\d+$/, '')]
+        end
+      end
+    end
   end
 end
