@@ -89,8 +89,15 @@ module Sidekiq
 
         # preserve weights using the least common multiple to expand all dynamic queues to the same size
         lcm = expansions.values.map(&:size).reduce(1, :lcm)
-        expansions.flat_map do |q, matches|
-          matches * (queues.count(q) * lcm / matches.size)
+        weighted_queues = expansions.map do |q, matches|
+          weight = (q[/\.(\d+)$/, 1] || '1').to_i * queues.count(q) * lcm / matches.size
+          matches.zip([weight] * matches.size).to_h
+        end
+        weighted_queues.each_with_object({}) do |hash, result|
+          hash.each do |queue, weight|
+            result[queue] ||= 0
+            result[queue] += weight
+          end
         end
       end
 
@@ -101,12 +108,13 @@ module Sidekiq
           key = q[1..-1].strip
           key = hostname if key.empty?
 
-          expand_queues(get_dynamic_queue(key), real_queues)
+          # TODO: preserve weight for dynamic queues
+          expand_queues(get_dynamic_queue(key), real_queues).keys
         elsif q =~ /\*/
-          patstr = q.gsub(/\*/, '.*')
+          patstr = q.gsub(/\*/, '.*').sub(/\.\d+$/, '')
           real_queues.grep(/^#{patstr}$/)
         else
-          [q]
+          [q.sub(/\.\d+$/, '')]
         end
       end
     end
